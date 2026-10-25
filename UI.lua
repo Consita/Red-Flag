@@ -100,7 +100,7 @@ local function EntryLabel(kind, e)
 end
 
 ------------------------------------------------------------------------
--- Popups (add by name, confirm remove / share)
+-- Popups (add by name, confirm remove / copy)
 ------------------------------------------------------------------------
 
 local function PopupEditBox(self)
@@ -151,11 +151,11 @@ StaticPopupDialogs["REDFLAG_CONFIRM_REMOVE"] = {
     preferredIndex = 3,
 }
 
-StaticPopupDialogs["REDFLAG_CONFIRM_SHARE"] = {
+StaticPopupDialogs["REDFLAG_CONFIRM_COPY"] = {
     text = "%s",
     button1 = YES,
     button2 = NO,
-    OnAccept = function(self, data) BL:ShareMine(data.kind, data.id, data.scope) end,
+    OnAccept = function(self, data) BL:CopyToList(data.kind, data.id, data.scope) end,
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
@@ -369,13 +369,13 @@ local function CreateListView(f)
     end
 
     d.myBox = NoteBox("RedFlagMyNoteScroll", -112)
-    d.comBox = NoteBox("RedFlagCommunityNoteScroll", -230)
+    d.comBox = NoteBox("RedFlagListNoteScroll", -230)
 
     d.save = Button(c, "Save Notes", 100)
     d.revert = Button(c, "Revert", 80, "LEFT", d.save, "RIGHT", 4, 0)
     d.remove = Button(c, "Remove", 90)
     -- top right, on the same line as the name: copy to the other list
-    d.share = Button(c, "", 130, "TOPRIGHT", c, "TOPRIGHT", -2, 0)
+    d.copy = Button(c, "", 130, "TOPRIGHT", c, "TOPRIGHT", -2, 0)
     d.name:SetWordWrap(false)
     d.name:SetWidth(215) -- keep long names clear of that button
 
@@ -485,13 +485,13 @@ local function CreateListView(f)
         end
         StaticPopup_Show("REDFLAG_CONFIRM_REMOVE", text, nil, data)
     end)
-    d.share:SetScript("OnClick", function()
+    d.copy:SetScript("OnClick", function()
         local e = CurrentEntry()
         if not e then return end
         if IsMine() then
-            local target = d.shareTarget
+            local target = d.copyTarget
             if not target then return end
-            StaticPopup_Show("REDFLAG_CONFIRM_SHARE",
+            StaticPopup_Show("REDFLAG_CONFIRM_COPY",
                 "Add " .. EntryLabel(Kind(), e) .. " to " .. ListText(target.id) .. "?\n\n"
                 .. "It also stays on your personal list. Your personal note is not added.",
                 nil, { kind = Kind(), id = e.id, scope = target.id })
@@ -601,16 +601,16 @@ function BL:UpdateDetail()
         for _, p in ipairs(self.providers) do
             if self:ProviderAvailable(p) then target = p break end
         end
-        d.shareTarget = target
-        d.share:SetShown(target ~= nil or other ~= nil)
+        d.copyTarget = target
+        d.copy:SetShown(target ~= nil or other ~= nil)
         local caption = target and (target.shareText or ("Add to " .. (target.label or target.id))) or ""
-        d.share:SetEnabled(target ~= nil and not other)
-        d.share:SetText(other and "Added" or caption)
+        d.copy:SetEnabled(target ~= nil and not other)
+        d.copy:SetText(other and "Added" or caption)
     else
-        d.shareTarget = nil
-        d.share:Show()
-        d.share:SetEnabled(not other)
-        d.share:SetText(other and "On Personal List" or "Add to Personal")
+        d.copyTarget = nil
+        d.copy:Show()
+        d.copy:SetEnabled(not other)
+        d.copy:SetText(other and "On Personal List" or "Add to Personal")
     end
 
     -- don't clobber notes that are being edited when the list changes in the background

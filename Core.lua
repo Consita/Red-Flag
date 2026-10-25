@@ -14,8 +14,7 @@ BL.MAX_NOTE = 500
 --   personal  my personal notes (one per player/guild), account-wide
 -- Red Flag never sends or receives any data. Other addons can show additional lists through
 -- the list provider interface at the end of this file.
--- Older versions kept more lists in this database (guildLists, characters); that data is
--- left untouched here for the addon that took it over.
+-- Data written by version 1.0 (guildLists, characters) is kept unchanged and never used here.
 local defaults = {
     global = {
         personal = { players = {}, guilds = {} }, -- [kind][id] = note
@@ -275,7 +274,7 @@ function BL:GetSorted(kind, filter, scope)
 end
 
 ------------------------------------------------------------------------
--- Personal notes: ONE per player/guild, shared by all lists, only stored locally.
+-- Personal notes: ONE per player/guild, used by all lists, only stored locally.
 -- Stored in db.global.personal[kind][id] (id = GUID when known, else the name key).
 ------------------------------------------------------------------------
 
@@ -474,9 +473,9 @@ function BL:RemoveBoth(kind, id, scope, otherId, otherScope)
     self:RefreshUI()
 end
 
--- Copy a personal-list entry to a provider list; it also stays on my personal list.
+-- Copy a personal-list entry to another list; it also stays on my personal list.
 -- The personal note stays local; the new entry starts with an empty list note.
-function BL:ShareMine(kind, id, scope)
+function BL:CopyToList(kind, id, scope)
     local m = self.db.global.mine[kind][id]
     if not m then return end
     if kind == "players" then
@@ -571,7 +570,7 @@ local MIGRATIONS = {
             local mine = g.mine and g.mine[kind]
             local com = g[kind]
             if type(store) == "table" and type(mine) == "table" then
-                -- personal-list notes move into the shared personal note
+                -- personal-list notes move into the single personal note
                 for id, m in pairs(mine) do
                     if type(m) == "table" then
                         if m.note and m.note ~= "" then
@@ -596,8 +595,8 @@ local MIGRATIONS = {
             end
         end
     end,
-    -- older data layout: the single shared list becomes guildLists[guild] (kept for the
-    -- addon that took those lists over)
+    -- data written by version 1.0: its second list and that list's old settings are moved,
+    -- unchanged, into guildLists. Red Flag itself never reads them again.
     [3] = function(g)
         if type(g.guildLists) ~= "table" then g.guildLists = {} end
         local s = type(g.settings) == "table" and g.settings or {}
@@ -831,9 +830,9 @@ end
 -- A provider is a table:
 --   id         unique string                      label     e.g. "Guild" (used in texts)
 --   tabs       { players = "...", guilds = "..." } tab captions (optional)
---   noteName   label of its entry note (e.g. "Community")         (optional)
+--   noteName   label of its entry note (e.g. "Team")              (optional)
 --   noteLabel  caption of its note box                             (optional)
---   shareText  caption of the "copy to this list" button          (optional)
+--   shareText  caption of the button that copies a personal entry to this list (optional)
 --   removeText extra line in the remove confirmation               (optional)
 -- and methods (kind = "players" | "guilds"; entries are tables with at least
 -- id, name, realm and optionally guid, class, note, by, added, mod, ed):

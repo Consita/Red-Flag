@@ -340,7 +340,8 @@ function BL:DisplayNotes(kind, e)
         local mine = e.myNote or self:GetPersonalNote(kind, e)
         if mine then out[#out + 1] = { "Personal", mine } end
     end
-    if not e.mine and mode ~= "mine" and e.note and e.note ~= "" then
+    -- list notes only exist on lists added by other addons
+    if #self.providers > 0 and not e.mine and mode ~= "mine" and e.note and e.note ~= "" then
         local p = self:ProviderOfEntry(kind, e)
         out[#out + 1] = { (p and p.noteName) or "List note", e.note }
     end

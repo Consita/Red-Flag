@@ -79,8 +79,13 @@ function BL:TestWarning()
     local saved = s.warnWhisper
     s.warnWhisper = true
     lastWarn["whisper:test"] = nil
-    self:Warn("whisper", "Testplayer", { name = "Testplayer", realm = self:MyRealm(), class = "ROGUE", note = "Community test note.", myNote = "My personal test note." },
-        { name = "Test Guild", note = "Test guild note." }, "test")
+    -- list notes only exist when another addon adds a list; the test shows what you'd really see
+    local listNote = #self.providers > 0
+    self:Warn("whisper", "Testplayer",
+        { name = "Testplayer", realm = self:MyRealm(), class = "ROGUE",
+          myNote = "My personal test note.", note = listNote and "List test note." or "" },
+        { name = "Test Guild", myNote = "My personal guild note.", note = listNote and "List guild note." or "" },
+        "test")
     s.warnWhisper = saved
 end
 

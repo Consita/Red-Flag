@@ -471,9 +471,7 @@ local function CreateListView(f)
                 .. "and your personal note.",
                 {
                     { "Both Lists", function()
-                        -- this list first, so the personal note goes away with the last entry
-                        BL:Remove(data.kind, data.id, data.scope)
-                        BL:Remove(data.kind, data.otherId, data.otherScope)
+                        BL:RemoveBoth(data.kind, data.id, data.scope, data.otherId, data.otherScope)
                     end },
                     { CANCEL },
                     { "This List Only", function() BL:Remove(data.kind, data.id, data.scope) end },
@@ -687,7 +685,22 @@ local function CreateSettingsView(f)
 
     Check("tooltip", "Show Red Flag notes in unit tooltips", 0, -258)
 
-    local notesLbl = Text(sv, "GameFontHighlight", "TOPLEFT", 4, -292)
+    -- how often the same player may trigger the same warning again
+    local repeatLbl = Text(sv, "GameFontHighlight", "TOPLEFT", 4, -292)
+    repeatLbl:SetText("Repeat warnings:")
+    local repeatBtn = Button(sv, "", 170, "LEFT", repeatLbl, "RIGHT", 8, 0)
+    repeatBtn:SetScript("OnClick", function()
+        local s = BL.db.global.settings
+        local idx = 0
+        for i, opt in ipairs(BL.REPEAT_OPTIONS) do
+            if opt.value == (s.cooldown or 60) then idx = i end
+        end
+        s.cooldown = BL.REPEAT_OPTIONS[idx % #BL.REPEAT_OPTIONS + 1].value
+        BL:UpdateSettings()
+    end)
+    f.repeatBtn = repeatBtn
+
+    local notesLbl = Text(sv, "GameFontHighlight", "TOPLEFT", 4, -324)
     notesLbl:SetText("Notes in warnings:")
     local notesBtn = Button(sv, "", 150, "LEFT", notesLbl, "RIGHT", 8, 0)
     notesBtn:SetScript("OnClick", function()
@@ -699,12 +712,12 @@ local function CreateSettingsView(f)
     f.notesBtn = notesBtn
     f.notesLbl = notesLbl
 
-    local test = Button(sv, "Test Warning", 120, "TOPLEFT", 0, -324)
+    local test = Button(sv, "Test Warning", 120, "TOPLEFT", 0, -356)
     test:SetScript("OnClick", function() BL:TestWarning() end)
 
-    local cdInfo = Text(sv, "GameFontDisableSmall", "TOPLEFT", 0, -356)
-    cdInfo:SetWidth(320)
-    cdInfo:SetText("The same player triggers the same warning at most once per minute. Group warnings fire once per player per group.")
+    local cdInfo = Text(sv, "GameFontDisableSmall", "LEFT", test, "RIGHT", 10, 0)
+    cdInfo:SetWidth(200)
+    cdInfo:SetText("Being in a group with someone warns once per group.")
 
     -- right column
     local x = 360
@@ -745,6 +758,11 @@ function BL:UpdateSettings()
         if snd.key == s.sound then label = snd.label end
     end
     main.soundBtn:SetText(label)
+    local repeatLabel = "?"
+    for _, opt in ipairs(self.REPEAT_OPTIONS) do
+        if opt.value == (s.cooldown or 60) then repeatLabel = opt.label end
+    end
+    main.repeatBtn:SetText(repeatLabel)
 
     -- the choice between personal and list notes only matters when other lists exist
     local hasProviders = #self.providers > 0

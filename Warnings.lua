@@ -7,6 +7,16 @@ BL.SOUNDS = {
     { key = "alarm", label = "Raid warning", id = (SOUNDKIT and SOUNDKIT.RAID_WARNING) or 8959 },
 }
 
+-- settings.cooldown: seconds before the same player can trigger the same warning again
+-- (0 = every time, -1 = once until logout/reload)
+BL.REPEAT_OPTIONS = {
+    { value = 0,   label = "Every time" },
+    { value = 60,  label = "Once per minute" },
+    { value = 300, label = "Once per 5 minutes" },
+    { value = 900, label = "Once per 15 minutes" },
+    { value = -1,  label = "Once per session" },
+}
+
 local REASONS = {
     whisper   = { setting = "warnWhisper",        text = "%s whispered you." },
     invite    = { setting = "warnInvite",         text = "%s invited you to a group." },
@@ -47,7 +57,9 @@ function BL:Warn(reason, who, p, g, throttleId)
 
     local key = reason .. ":" .. (throttleId or who or "?")
     local now = GetTime()
-    if lastWarn[key] and now - lastWarn[key] < (s.cooldown or 60) then return end
+    -- repeat setting: 0 = every time, -1 = once per session, else seconds between warnings
+    local cooldown = s.cooldown or 60
+    if lastWarn[key] and (cooldown < 0 or now - lastWarn[key] < cooldown) then return end
     lastWarn[key] = now
 
     local display = p and ColoredName(p) or who
@@ -252,9 +264,12 @@ end
 local function TooltipUnit(tooltip)
     if not BL.db.global.settings.tooltip or tooltip ~= GameTooltip then return end
     if tooltip.redFlagDone then return end -- both hooks may fire for the same tooltip
-    local _, unit = tooltip:GetUnit()
-    if not unit and UnitExists("mouseover") then unit = "mouseover" end
+    local shownName, unit = tooltip:GetUnit()
+    if not unit and shownName and UnitExists("mouseover") then unit = "mouseover" end
     if not unit or not UnitIsPlayer(unit) then return end
+    -- a token like "mouseover" may already point at the next player while the tooltip still
+    -- shows the previous one: only add notes when the unit is the one the tooltip shows
+    if not shownName or UnitName(unit) ~= shownName then return end
     tooltip.redFlagDone = true
     local info = BL:ObserveUnit(unit)
     if not info then return end
@@ -298,8 +313,10 @@ function BL:SetupWarnings()
     self:RegisterEvent("UPDATE_MOUSEOVER_UNIT", function()
         BL:ObserveUnit("mouseover")
         if GameTooltip:IsShown() then
-            local _, unit = GameTooltip:GetUnit()
-            if unit and UnitIsUnit(unit, "mouseover") then TooltipUnit(GameTooltip) end
+            local shownName, unit = GameTooltip:GetUnit()
+            if unit and shownName and UnitIsUnit(unit, "mouseover") and UnitName("mouseover") == shownName then
+                TooltipUnit(GameTooltip)
+            end
         end
     end)
 end

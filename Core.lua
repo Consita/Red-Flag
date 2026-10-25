@@ -317,8 +317,10 @@ function BL:SetPersonalNote(kind, e, note)
     self:RefreshUI()
 end
 
--- delete the personal note of a player/guild that is on no list anymore
-function BL:ForgetPersonalNote(kind, e)
+-- Delete the personal note of a player/guild that is on no list anymore.
+-- keys: extra keys the note may be stored under (collected before the entries were removed),
+-- so no note is left behind that could later be picked up by someone with the same name.
+function BL:ForgetPersonalNote(kind, e, keys)
     if not e then return end
     if kind == "players" then
         if self:FindPlayer(e.guid, e.name, e.realm) then return end
@@ -329,6 +331,7 @@ function BL:ForgetPersonalNote(kind, e)
     if e.id then store[e.id] = nil end
     if e.guid then store[e.guid] = nil end
     if kind == "players" and e.name and e.realm then store[self:NameKey(e.name, e.realm)] = nil end
+    for _, k in ipairs(keys or {}) do store[k] = nil end
 end
 
 -- Notes to show in warnings/tooltips, honouring the noteDisplay setting.
@@ -437,16 +440,37 @@ function BL:SetNote(kind, id, note, scope)
     self:RefreshUI()
 end
 
--- The personal note is deleted only when the entry leaves my last list.
-function BL:Remove(kind, id, scope)
+-- removes one entry; returns it and every key its personal note may be stored under
+-- (collected first, while the entry on the other list can still be found)
+local function RemoveEntry(self, kind, id, scope)
     local e = self:GetEntry(kind, scope, id)
-    if not e then return end
+    if not e then return nil end
+    local keys = NoteKeys(self, kind, e)
     if scope == "mine" then
         self.db.global.mine[kind][id] = nil
     else
         Call(self:Provider(scope), "Remove", kind, id)
     end
-    self:ForgetPersonalNote(kind, e)
+    return e, keys
+end
+
+-- The personal note is deleted only when the entry leaves my last list.
+function BL:Remove(kind, id, scope)
+    local e, keys = RemoveEntry(self, kind, id, scope)
+    if e then self:ForgetPersonalNote(kind, e, keys) end
+    self:RefreshUI()
+end
+
+-- remove the same player/guild from two lists at once, including its personal note
+function BL:RemoveBoth(kind, id, scope, otherId, otherScope)
+    local e1, k1 = RemoveEntry(self, kind, id, scope)
+    local e2, k2 = RemoveEntry(self, kind, otherId, otherScope)
+    local keys = {}
+    for _, t in ipairs({ k1 or {}, k2 or {} }) do
+        for _, k in ipairs(t) do keys[#keys + 1] = k end
+    end
+    if e1 or e2 then self:ForgetPersonalNote(kind, e1 or e2, keys) end
+    if e1 and e2 then self:ForgetPersonalNote(kind, e2, keys) end
     self:RefreshUI()
 end
 
@@ -498,10 +522,11 @@ function BL:ObservePlayer(info)
     local n, r = self:SplitName(info.name, info.realm)
     local nameKey = self:NameKey(n, r)
 
-    -- personal note stored under the name moves to the GUID
+    -- a personal note stored under the name moves to the GUID - but only when this player is
+    -- actually on a list, so a leftover note can never jump to someone who reuses the name
     local personal = self.db.global.personal.players
     local oldNote, newNote = personal[nameKey], personal[info.guid]
-    if oldNote then
+    if oldNote and self:FindPlayer(info.guid, n, r) then
         personal[info.guid] = (newNote and newNote ~= oldNote)
             and (newNote .. "\n" .. oldNote):sub(1, self.MAX_NOTE) or oldNote
         personal[nameKey] = nil

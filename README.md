@@ -28,7 +28,7 @@ Red Flag is a **personal tool, not a pillory**.
 
 ## Installation
 - **CurseForge app:** search for *Red Flag*.
-- **Manually:** download `RedFlag-x.y.zip` from the latest
+- **Manually:** download `RedFlag-x.y-bc.zip` from the latest
   [release](https://github.com/Consita/Red-Flag/releases) and extract it into
   `World of Warcraft\_anniversary_\Interface\AddOns\` (you should end up with an `AddOns\RedFlag` folder).
 

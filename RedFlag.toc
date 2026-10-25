@@ -1,0 +1,13 @@
+## Interface: 20504, 20505, 20506
+## Title: Red Flag
+## Notes: Private player & guild blacklist with personal notes and warnings only you see
+## Author: Consita
+## Version: 1.1
+## SavedVariables: RedFlagDB
+## SavedVariablesPerCharacter: RedFlagBackupDB
+## Dependencies: Ace3
+## X-Curse-Project-ID: 1759389
+
+Core.lua
+Warnings.lua
+UI.lua

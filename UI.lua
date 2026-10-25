@@ -259,9 +259,10 @@ local function CreateListView(f)
         StaticPopup_Show("REDFLAG_ADD_NAME", "Add to " .. ListText(Scope()) .. " - enter the " .. what .. ":", nil, state.tab)
     end)
 
-    -- which list this is
-    f.scopeLabel = Text(lv, "GameFontNormal", "TOPRIGHT", -4, -6)
-    f.scopeLabel:SetJustifyH("RIGHT")
+    -- which list this is: right next to the add buttons
+    f.scopeLabel = Text(lv, "GameFontNormal", "LEFT", f.addName, "RIGHT", 12, 0)
+    f.scopeLabel:SetPoint("RIGHT", lv, "RIGHT", -4, 0)
+    f.scopeLabel:SetWordWrap(false)
 
     -- list
     local listBg = Panel(lv)

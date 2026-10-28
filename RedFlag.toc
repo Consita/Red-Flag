@@ -1,8 +1,8 @@
-## Interface: 20504, 20505, 20506
+## Interface: 20504, 20505, 20506, 16001
 ## Title: Red Flag
 ## Notes: Private player & guild blacklist with personal notes and warnings only you see
 ## Author: Consita
-## Version: 1.1.1
+## Version: 1.1.2
 ## SavedVariables: RedFlagDB
 ## SavedVariablesPerCharacter: RedFlagBackupDB
 ## Dependencies: Ace3

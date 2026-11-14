@@ -255,7 +255,9 @@ local function CreateListView(f)
     end)
     f.addName = Button(lv, "Add by Name", 110, "LEFT", f.addTarget, "RIGHT", 4, 0)
     f.addName:SetScript("OnClick", function()
-        local what = Kind() == "players" and "player name (Name or Name-Realm)" or "guild name"
+        local what = Kind() == "players"
+            and (BL.IS_FOREVER and "first name and surname" or "player name (Name or Name-Realm)")
+            or "guild name"
         StaticPopup_Show("REDFLAG_ADD_NAME", "Add to " .. ListText(Scope()) .. " - enter the " .. what .. ":", nil, state.tab)
     end)
 
@@ -571,7 +573,10 @@ function BL:UpdateDetail()
         d.name:SetText(BL:FullName(e.name, e.realm))
         d.name:SetTextColor(ClassRGB(e.class))
         local className = e.class and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[e.class]
-        lines[#lines + 1] = "Realm: |cffffffff" .. e.realm .. "|r" .. (className and ("    Class: |cffffffff" .. className .. "|r") or "")
+        local who = BL.IS_FOREVER
+            and ((e.realm ~= "" and e.realm ~= BL:MyRealm()) and ("Surname: |cffffffff" .. e.realm .. "|r") or "|cffffaa00Surname unknown|r")
+            or ("Realm: |cffffffff" .. e.realm .. "|r")
+        lines[#lines + 1] = who .. (className and ("    Class: |cffffffff" .. className .. "|r") or "")
         if e.guid then
             lines[#lines + 1] = "GUID: |cffaaaaaa" .. e.guid .. "|r"
         else
@@ -580,7 +585,7 @@ function BL:UpdateDetail()
     else
         d.name:SetText("<" .. e.name .. ">")
         d.name:SetTextColor(1, 0.82, 0)
-        lines[#lines + 1] = "Realm: |cffffffff" .. e.realm .. "|r"
+        if not BL.IS_FOREVER then lines[#lines + 1] = "Realm: |cffffffff" .. e.realm .. "|r" end
     end
     if mine then
         lines[#lines + 1] = "Added on " .. FormatDate(e.added)

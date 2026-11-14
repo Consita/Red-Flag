@@ -49,6 +49,23 @@ function BL:Now()
     return GetServerTime and GetServerTime() or time()
 end
 
+-- WoW Forever (interface 1.6x): characters have a first name and a surname instead of a realm.
+-- The game API returns the surname where other clients return the realm (UnitName,
+-- GetPlayerInfoByGUID, "Name-Surname" in chat), so entries keep the surname in their
+-- "realm" field. Data format and RedFlagAPI stay the same on every client.
+local TOC = select(4, GetBuildInfo()) or 0
+BL.IS_FOREVER = TOC >= 16000 and TOC < 20000
+
+-- Values the client hides from addons (WoW Forever / modern clients, e.g. in restricted
+-- situations) may not be compared or used as table keys: treat them as unknown.
+function BL:IsSecret(...)
+    if not issecretvalue then return false end
+    for i = 1, select("#", ...) do
+        if issecretvalue((select(i, ...))) then return true end
+    end
+    return false
+end
+
 function BL:MyRealm()
     local r = GetNormalizedRealmName and GetNormalizedRealmName()
     if not r or r == "" then
@@ -58,27 +75,49 @@ function BL:MyRealm()
 end
 
 -- realm names as used in "Name-Realm": no spaces
+-- (guilds always use this; on WoW Forever players use their surname instead, see SplitName)
 function BL:NormRealm(r)
     if not r or r == "" then return self:MyRealm() end
     return (r:gsub("%s", ""))
 end
 
+-- first letter upper case, rest lower case (UTF-8 safe: only touches first byte if ASCII)
+local function Capitalize(s)
+    s = s and s:gsub("^%s+", ""):gsub("%s+$", "")
+    if not s or s == "" then return s end
+    return s:sub(1, 1):upper() .. s:sub(2):lower()
+end
+
 -- "Name-Realm" / "Name" -> "Name", "Realm"
+-- WoW Forever: "First Surname" / "First-Surname" / "First" + surname -> "First", "Surname"
+-- (surname "" when unknown - first names alone are not unique there)
 function BL:SplitName(full, realm)
     if not full then return nil end
+    if self.IS_FOREVER then
+        local first, surname = full:match("^%s*([^%s%-]+)[%s%-]*([^%s%-]*)")
+        if not surname or surname == "" then surname = realm end
+        if surname == self:MyRealm() then surname = nil end -- never the server realm
+        return Capitalize(first), Capitalize(surname or "") or ""
+    end
     local name, r = strsplit("-", full, 2)
     r = self:NormRealm((r and r ~= "") and r or realm)
-    name = name and name:gsub("^%s+", ""):gsub("%s+$", "")
-    if name and name ~= "" then
-        -- normalize capitalisation (UTF-8 safe: only touches first byte if ASCII)
-        name = name:sub(1, 1):upper() .. name:sub(2):lower()
-    end
-    return name, r
+    return Capitalize(name), r
 end
 
 function BL:FullName(name, realm)
+    if self.IS_FOREVER then
+        if not realm or realm == "" or realm == self:MyRealm() then return name end
+        return name .. " " .. realm
+    end
     if not realm or realm == self:MyRealm() then return name end
     return name .. "-" .. realm
+end
+
+-- my own name as shown to others ("First Surname" on WoW Forever)
+function BL:MyName()
+    local name, surname = UnitName("player")
+    if self.IS_FOREVER and surname and surname ~= "" then return name .. " " .. surname end
+    return name
 end
 
 function BL:NameKey(name, realm)
@@ -95,27 +134,33 @@ end
 
 -- Collect identity of a player unit
 function BL:InfoFromUnit(unit)
-    if not unit or not UnitExists(unit) or not UnitIsPlayer(unit) then return nil end
+    if not unit or self:IsSecret(unit) then return nil end
+    local exists, isPlayer = UnitExists(unit), UnitIsPlayer(unit)
+    if self:IsSecret(exists, isPlayer) or not exists or not isPlayer then return nil end
     local guid = UnitGUID(unit)
     local name, realm = UnitName(unit)
-    if not name or name == UNKNOWNOBJECT then return nil end
     local _, class = UnitClass(unit)
+    if self:IsSecret(guid, name, realm, class) then return nil end
+    if not name or name == "" or name == UNKNOWNOBJECT then return nil end
+    if self.IS_FOREVER and (not realm or realm == "") then return nil end -- surname not loaded yet
     return {
         guid = self:IsValidGUID(guid) and guid or nil,
         name = name,
-        realm = self:NormRealm(realm),
+        realm = self.IS_FOREVER and realm or self:NormRealm(realm),
         class = class,
     }
 end
 
 function BL:InfoFromGUID(guid)
-    if not self:IsValidGUID(guid) then return nil end
+    if self:IsSecret(guid) or not self:IsValidGUID(guid) then return nil end
     local _, class, _, _, _, name, realm = GetPlayerInfoByGUID(guid)
+    if self:IsSecret(class, name, realm) then return nil end
     if not name or name == "" then return nil end
+    if self.IS_FOREVER and (not realm or realm == "") then return nil end
     return {
         guid = guid,
         name = name,
-        realm = self:NormRealm(realm),
+        realm = self.IS_FOREVER and realm or self:NormRealm(realm),
         class = class,
     }
 end
@@ -410,7 +455,7 @@ function BL:AddPlayer(info, note, scope)
         realm = r,
         class = info.class,
         note = (note or ""):sub(1, self.MAX_NOTE),
-        by = UnitName("player"),
+        by = self:MyName(),
         added = now,
         mod = now,
     }, scope)
@@ -427,7 +472,7 @@ function BL:AddGuild(name, realm, note, scope)
         name = name,
         realm = realm,
         note = (note or ""):sub(1, self.MAX_NOTE),
-        by = UnitName("player"),
+        by = self:MyName(),
         added = now,
         mod = now,
     }, scope)
@@ -553,7 +598,7 @@ end
 --   * Updates only ever add fields through numbered migrations; nothing is reset.
 ------------------------------------------------------------------------
 
-BL.SCHEMA = 3
+BL.SCHEMA = 4
 
 local MIGRATIONS = {
     -- [n] = function(global) ... end  -- upgrades data from schema n-1 to n; never deletes entries
@@ -618,6 +663,33 @@ local MIGRATIONS = {
         end
         g.players, g.guilds = nil, nil
         s.syncGuild, s.shareRank, s.acceptRank, s.lastSync = nil, nil, nil, nil
+    end,
+    -- WoW Forever: players typed in as "First Surname" before surnames were understood were
+    -- stored with the whole text as name and the server realm as realm. Split them up.
+    [4] = function(g)
+        if not BL.IS_FOREVER then return end
+        local list = g.mine and g.mine.players
+        local notes = g.personal and g.personal.players
+        if type(list) ~= "table" then return end
+        local fixes = {}
+        for id, e in pairs(list) do
+            if type(e) == "table" and not e.guid and type(e.name) == "string" and e.name:find("[%s%-]") then
+                fixes[id] = e
+            end
+        end
+        for oldId, e in pairs(fixes) do
+            local n, r = BL:SplitName(e.name)
+            if n and r ~= "" then
+                local newId = BL:NameKey(n, r)
+                list[oldId] = nil
+                e.id, e.name, e.realm = newId, n, r
+                if list[newId] == nil then list[newId] = e end
+                if type(notes) == "table" and notes[oldId] then
+                    notes[newId] = notes[newId] or notes[oldId]
+                    notes[oldId] = nil
+                end
+            end
+        end
     end,
 }
 
@@ -724,11 +796,12 @@ function BL:OnEnable()
     end
 end
 
+local NAME_HINT = BL.IS_FOREVER and "First Surname" or "Name[-Realm]"
 local HELP = {
     "/rf - open the Red Flag window",
-    "/rf add [Name[-Realm]] - add a player to your list (no name = your target)",
+    "/rf add [" .. NAME_HINT .. "] - add a player to your list (no name = your target)",
     "/rf addguild [Guild Name] - add a guild to your list (no name = your target's guild)",
-    "/rf remove Name[-Realm] - remove a player from your list",
+    "/rf remove " .. NAME_HINT .. " - remove a player from your list",
     "/rf test - show a test warning",
     "/rf restore - add back entries from this character's backup (never overwrites)",
     "/rf settings - open the settings",
@@ -747,6 +820,10 @@ function BL:AddTargetOrName(arg, scope)
             info = self:InfoFromUnit(arg)
         else
             local n, r = self:SplitName(arg)
+            if self.IS_FOREVER and r == "" then
+                self:Print("Enter the first name and the surname, e.g. \"Star Dog\" (first names alone are not unique).")
+                return
+            end
             info = { name = n, realm = r }
         end
     else

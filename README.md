@@ -45,6 +45,8 @@ Requires [Ace3](https://www.curseforge.com/wow/addons/ace3).
 | `/rf restore` | Restore missing entries from your backup |
 | `/rf settings` | Open the settings |
 
+On WoW Forever, characters have a first name and a surname, so use `First Surname` instead of `Name-Realm` (for example `/rf add Star Dog`).
+
 ## For addon authors
 Red Flag offers a small, stable interface (`RedFlagAPI`, version 1) that lets other addons show
 additional lists in the Red Flag window. It is documented at the end of [Core.lua](Core.lua).

@@ -94,7 +94,7 @@ function BL:TestWarning()
     -- list notes only exist when another addon adds a list; the test shows what you'd really see
     local listNote = #self.providers > 0
     self:Warn("whisper", "Testplayer",
-        { name = "Testplayer", realm = self:MyRealm(), class = "ROGUE",
+        { name = "Testplayer", realm = self.IS_FOREVER and "" or self:MyRealm(), class = "ROGUE",
           myNote = "My personal test note.", note = listNote and "List test note." or "" },
         { name = "Test Guild", myNote = "My personal guild note.", note = listNote and "List guild note." or "" },
         "test")
@@ -182,6 +182,7 @@ function BL:ObserveUnit(unit)
     local info = self:InfoFromUnit(unit)
     if not info or not info.guid then return info end
     local gName, _, _, gRealm = GetGuildInfo(unit)
+    if self:IsSecret(gName, gRealm) then gName = nil end
     if gName then
         guildCache[info.guid] = { gName, (gRealm and gRealm ~= "") and gRealm or self:MyRealm() }
     end
@@ -200,7 +201,15 @@ function BL:LookupGUID(guid, name)
     return p, g, n and self:FullName(n, r) or name
 end
 
+-- guild of a unit, or nil (also when the client hides it)
+local function UnitGuild(unit)
+    local gName, _, _, gRealm = GetGuildInfo(unit)
+    if BL:IsSecret(gName, gRealm) or not gName then return nil end
+    return gName, (gRealm and gRealm ~= "") and gRealm or nil
+end
+
 function BL:CHAT_MSG_WHISPER(_, _, sender, _, _, _, flags, _, _, _, _, _, guid)
+    if self:IsSecret(sender, flags, guid) then return end
     if flags == "GM" then return end
     local p, g, display = self:LookupGUID(guid, sender)
     if p or g then self:Warn("whisper", display, p, g, guid or sender) end
@@ -208,6 +217,7 @@ end
 
 function BL:PARTY_INVITE_REQUEST(_, inviter, ...)
     local guid = select(6, ...)
+    if self:IsSecret(inviter, guid) then return end
     if type(guid) ~= "string" then guid = nil end
     local p, g, display = self:LookupGUID(guid, inviter)
     if not p and not guid and inviter then p = self:FindPlayerByName(inviter) end
@@ -221,34 +231,32 @@ function BL:CheckGroup()
     end
     local prefix, count = "party", GetNumSubgroupMembers()
     if IsInRaid() then prefix, count = "raid", GetNumGroupMembers() end
+    if self:IsSecret(count) then return end
+    local myGuid = UnitGUID("player")
     for i = 1, count do
         local unit = prefix .. i
-        if not UnitIsUnit(unit, "player") then
-            local info = self:ObserveUnit(unit)
-            if info and info.guid and not groupWarned[info.guid] then
-                local p = self:FindPlayer(info.guid, info.name, info.realm)
-                local gName, _, _, gRealm = GetGuildInfo(unit)
-                local g = gName and self:FindGuild(gName, (gRealm and gRealm ~= "") and gRealm or nil)
-                if p or g then
-                    groupWarned[info.guid] = true
-                    self:Warn("group", self:FullName(info.name, info.realm), p, g, info.guid)
-                end
+        local info = self:ObserveUnit(unit)
+        if info and info.guid and info.guid ~= myGuid and not groupWarned[info.guid] then
+            local p = self:FindPlayer(info.guid, info.name, info.realm)
+            local gName, gRealm = UnitGuild(unit)
+            local g = gName and self:FindGuild(gName, gRealm)
+            if p or g then
+                groupWarned[info.guid] = true
+                self:Warn("group", self:FullName(info.name, info.realm), p, g, info.guid)
             end
         end
     end
 end
 
 local function OnOutgoingInvite(target)
-    if type(target) ~= "string" or target == "" then return end
+    if BL:IsSecret(target) or type(target) ~= "string" or target == "" then return end
     local p, g, display
-    if UnitExists(target) then
-        local info = BL:ObserveUnit(target)
-        if info then
-            p = BL:FindPlayer(info.guid, info.name, info.realm)
-            local gName, _, _, gRealm = GetGuildInfo(target)
-            g = gName and BL:FindGuild(gName, (gRealm and gRealm ~= "") and gRealm or nil)
-            display = BL:FullName(info.name, info.realm)
-        end
+    local info = BL:ObserveUnit(target) -- nil unless target is a unit or a player the client knows
+    if info then
+        p = BL:FindPlayer(info.guid, info.name, info.realm)
+        local gName, gRealm = UnitGuild(target)
+        g = gName and BL:FindGuild(gName, gRealm)
+        display = BL:FullName(info.name, info.realm)
     end
     if not p and not g then
         p = BL:FindPlayerByName(target)
@@ -261,21 +269,47 @@ end
 -- Tooltip
 ------------------------------------------------------------------------
 
+-- Does the tooltip title belong to this unit? On WoW Forever the title may show
+-- "First", "First Surname" or "First-Surname".
+local function ShowsUnit(shownName, unit)
+    local name, surname = UnitName(unit)
+    if BL:IsSecret(name, surname) or not name then return false end
+    if shownName == name then return true end
+    if surname and surname ~= "" then
+        return shownName == name .. " " .. surname or shownName == name .. "-" .. surname
+    end
+    return false
+end
+
+-- The unit a tooltip shows, or nil. The client may hide (make secret) the tooltip's unit and
+-- name in restricted situations; then nothing is added.
+local function TooltipTarget(tooltip)
+    local shownName, unit = tooltip:GetUnit()
+    if BL:IsSecret(shownName, unit) or not shownName then return nil end
+    if not unit then
+        local exists = UnitExists("mouseover")
+        if BL:IsSecret(exists) or not exists then return nil end
+        unit = "mouseover"
+    end
+    local isPlayer = UnitIsPlayer(unit)
+    if BL:IsSecret(isPlayer) or not isPlayer then return nil end
+    -- a token like "mouseover" may already point at the next player while the tooltip still
+    -- shows the previous one: only add notes when the unit is the one the tooltip shows
+    if not ShowsUnit(shownName, unit) then return nil end
+    return unit
+end
+
 local function TooltipUnit(tooltip)
     if not BL.db.global.settings.tooltip or tooltip ~= GameTooltip then return end
     if tooltip.redFlagDone then return end -- both hooks may fire for the same tooltip
-    local shownName, unit = tooltip:GetUnit()
-    if not unit and shownName and UnitExists("mouseover") then unit = "mouseover" end
-    if not unit or not UnitIsPlayer(unit) then return end
-    -- a token like "mouseover" may already point at the next player while the tooltip still
-    -- shows the previous one: only add notes when the unit is the one the tooltip shows
-    if not shownName or UnitName(unit) ~= shownName then return end
+    local unit = TooltipTarget(tooltip)
+    if not unit then return end
     tooltip.redFlagDone = true
     local info = BL:ObserveUnit(unit)
     if not info then return end
     local p = BL:FindPlayer(info.guid, info.name, info.realm)
-    local gName, _, _, gRealm = GetGuildInfo(unit)
-    local g = gName and BL:FindGuild(gName, (gRealm and gRealm ~= "") and gRealm or nil)
+    local gName, gRealm = UnitGuild(unit)
+    local g = gName and BL:FindGuild(gName, gRealm)
     local function AddEntry(kind, e, title)
         tooltip:AddLine(title, 1, 0.25, 0.25)
         for _, n in ipairs(BL:DisplayNotes(kind, e)) do
@@ -312,11 +346,7 @@ function BL:SetupWarnings()
     -- last resort: mouseover event (e.g. if another addon rebuilds the tooltip)
     self:RegisterEvent("UPDATE_MOUSEOVER_UNIT", function()
         BL:ObserveUnit("mouseover")
-        if GameTooltip:IsShown() then
-            local shownName, unit = GameTooltip:GetUnit()
-            if unit and shownName and UnitIsUnit(unit, "mouseover") and UnitName("mouseover") == shownName then
-                TooltipUnit(GameTooltip)
-            end
-        end
+        -- TooltipTarget only accepts the unit when it is the player the tooltip shows
+        if GameTooltip:IsShown() then TooltipUnit(GameTooltip) end
     end)
 end
